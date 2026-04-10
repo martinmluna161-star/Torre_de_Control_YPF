@@ -1,3 +1,6 @@
+Tablero ypf v2 · HTML
+Copiar
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -493,7 +496,7 @@ function renderKPIs() {
   document.getElementById('k-altas').textContent = altas.length;
  
   if (ultima) {
-    document.getElementById('k-ultima').textContent    = ultima.tipo_alerta || '—';
+    document.getElementById('k-ultima').textContent    = ultima.tipo_alerta || ultima['tipo alerta'] || '—';
     document.getElementById('k-ultima-meta').innerHTML = `<span class="mono">${ultima.patente}</span> &middot; ${fmtTime(ultima.timestamp)}`;
   }
 }
@@ -502,28 +505,46 @@ function renderKPIs() {
 function renderFlota() {
   const tb = document.getElementById('fleet-body');
  
-  // Merge FLOTA_BASE con datos del sheet
+  // Merge FLOTA_BASE con datos del Sheet (hoja Flota)
+  // Campos reales: unidad, patente, chofer, ultima_alerta, tipo_alerta,
+  //                severidad, ubicacion, lat, lng, alertas_hoy, estado, actualizado
   const rows = FLOTA_BASE.map(base => {
-    const sheet = flotaData.find(r => r.patente?.toUpperCase() === base.patente) || {};
-    // También buscar en alertas la última alerta de esta patente
-    const ultAl = alertasData.filter(a => a.patente?.toUpperCase() === base.patente)
-                              .sort((a,b) => b.timestamp?.localeCompare(a.timestamp))[0] || {};
+    const sheet = flotaData.find(r =>
+      (r.patente||'').toUpperCase() === base.patente
+    ) || {};
+    // Contar alertas de hoy directamente desde hoja Alertas (más fresco)
     const hoy = new Date().toISOString().slice(0,10);
-    const cnt = alertasData.filter(a => a.patente?.toUpperCase() === base.patente && (a.timestamp||'').startsWith(hoy)).length;
-    return { ...base, ...sheet, ultima_alerta: ultAl, alertas_hoy: cnt };
+    const cntHoy = alertasData.filter(a =>
+      (a.patente||'').toUpperCase() === base.patente &&
+      (a.timestamp||'').startsWith(hoy)
+    ).length;
+    // Última alerta desde hoja Alertas
+    const ultAl = alertasData.filter(a =>
+      (a.patente||'').toUpperCase() === base.patente
+    ).sort((a,b) => (b.timestamp||'').localeCompare(a.timestamp||''))[0] || {};
+ 
+    return { ...base, ...sheet, _ultAl: ultAl, _cntHoy: cntHoy };
   });
  
   tb.innerHTML = rows.map(r => {
-    const sev = r.ultima_alerta?.severidad || '';
+    // Severidad: primero desde hoja Flota, si no desde última alerta
+    const sev = r.severidad || r._ultAl.severidad || '';
     const sevCls = sev==='ALTA'?'pr':sev==='MEDIA'?'pa2':'pn';
-    const cntCls = r.alertas_hoy===0?'pg':r.alertas_hoy<=2?'pa2':'pr';
-    const tipo = r.ultima_alerta?.tipo_alerta || '—';
-    const ts   = r.ultima_alerta?.timestamp   || '';
-    const lat  = r.ultima_alerta?.lat || r.lat || '';
-    const lng  = r.ultima_alerta?.lng || r.lng || '';
-    const ubi  = r.ultima_alerta?.ubicacion || r.ubicacion || '—';
+    // Alertas hoy: desde contador en tiempo real
+    const cnt = r._cntHoy;
+    const cntCls = cnt===0?'pg':cnt<=2?'pa2':'pr';
+    // Tipo última alerta: desde hoja Flota (campo tipo_alerta) o desde alertas
+    const tipo = r.tipo_alerta || r._ultAl.tipo_alerta || '—';
+    // Timestamp última alerta: campo ultima_alerta en hoja Flota
+    const ts   = r.ultima_alerta || r._ultAl.timestamp || '';
+    // Coords: desde hoja Flota o desde última alerta
+    const lat  = r.lat || r._ultAl.lat || '';
+    const lng  = r.lng || r._ultAl.lng || '';
+    // Ubicación
+    const ubi  = r.ubicacion || r._ultAl.ubicacion || '—';
     const ubiShort = ubi.length > 30 ? ubi.slice(0,30)+'…' : ubi;
-    const chofer = r.ultima_alerta?.chofer || r.chofer || '—';
+    // Chofer: desde hoja Flota o desde última alerta
+    const chofer = r.chofer || r._ultAl.chofer || '—';
     const mapHref = lat && lng ? `https://maps.google.com/maps?q=${lat},${lng}` : '';
  
     return `<tr>
@@ -571,7 +592,7 @@ function renderAlertasTable(filtro) {
         <td class="mono" style="font-size:9px;color:var(--text3)">${fmtTS(a.timestamp)}</td>
         <td><span class="pat">${a.patente||'—'}</span></td>
         <td style="font-size:10px">${a.chofer||'—'}</td>
-        <td><span class="pill ${a.tipo_alerta?.toLowerCase().includes('velocidad')?'pr':a.tipo_alerta?.toLowerCase().includes('giro')||a.tipo_alerta?.toLowerCase().includes('frenada')?'pa2':'pb'}">${a.tipo_alerta||'—'}</span></td>
+        <td><span class="pill ${((a.tipo_alerta||'')).toLowerCase().includes('velocidad')?'pr':((a.tipo_alerta||'')).toLowerCase().includes('giro')||((a.tipo_alerta||'')).toLowerCase().includes('frenada')?'pa2':'pb'}">${a.tipo_alerta||'—'}</span></td>
         <td><span class="pill ${sevCls}">${a.severidad||'—'}</span></td>
         <td style="font-size:10px;color:var(--text3)">${(a.detalle||'').slice(0,50)}</td>
         <td><span class="loc-text" title="${a.ubicacion||''}">${ubiS}</span></td>
@@ -659,7 +680,8 @@ function renderICM() {
 function renderMiniStats() {
   const hoy = new Date().toISOString().slice(0,10);
   const hoyData = alertasData.filter(a => (a.timestamp||'').startsWith(hoy));
-  const cnt = t => hoyData.filter(a => (a.tipo_alerta||'').toLowerCase().includes(t)).length;
+  const tipoVal = a => (a.tipo_alerta || a['tipo alerta'] || '').toLowerCase();
+  const cnt = t => hoyData.filter(a => tipoVal(a).includes(t)).length;
  
   const giro    = cnt('giro');
   const frenada = cnt('frenada');
