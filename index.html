@@ -1,6 +1,3 @@
-Tablero ypf v2 · HTML
-Copiar
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -450,10 +447,33 @@ async function loadData() {
   }
 }
  
+/* ─ normalizar header: quitar acentos, espacios>_, minusculas ─ */
+function normalizeKey(h) {
+  return h.replace(/"/g,'').trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase()
+    .replace(/\s+/g,'_')
+    .replace(/[^a-z0-9_]/g,'');
+}
+const FIELD_MAP = {
+  'timestamp':'timestamp','unidad':'unidad','patente':'patente',
+  'chofer':'chofer','tipo_alerta':'tipo_alerta',
+  'severidad':'severidad','titulo':'titulo','detalle':'detalle',
+  'ubicacion':'ubicacion','latitud':'lat','lat':'lat',
+  'longitud':'lng','lng':'lng',
+  'url_mapa':'mapa_url','mapa_url':'mapa_url',
+  'estado':'estado','procesado_en':'procesado_en',
+  'ultima_alerta':'ultima_alerta','tipo_ultima_alerta':'tipo_alerta',
+  'alertas_hoy':'alertas_hoy','actualizado':'actualizado',
+};
+ 
 /* ─ parser CSV ─ */
 function parseCSV(txt) {
   const lines = txt.trim().split('\n');
-  const hdrs  = lines[0].split(',').map(h => h.replace(/"/g,'').trim().toLowerCase().replace(/\s+/g,'_'));
+  const hdrs = lines[0].split(',').map(h => {
+    const norm = normalizeKey(h);
+    return FIELD_MAP[norm] || norm;
+  });
   return lines.slice(1).map(l => {
     const vals = splitLine(l);
     const o = {};
@@ -487,17 +507,19 @@ function render() {
 function renderKPIs() {
   const hoy = new Date().toISOString().slice(0,10);
   const alertasHoy = alertasData.filter(a => (a.timestamp||'').startsWith(hoy));
-  const altas = alertasHoy.filter(a => a.severidad === 'ALTA' && a.estado !== 'Resuelta');
+  const getSev = a => a.severidad || a['Severidad'] || '';
+  const getEst = a => a.estado || a['Estado'] || '';
+  const altas = alertasHoy.filter(a => getSev(a) === 'ALTA' && getEst(a) !== 'Resuelta');
   const ultima = alertasData.length ? alertasData[alertasData.length-1] : null;
  
   document.getElementById('k-alertas-hoy').textContent = alertasHoy.length;
   document.getElementById('k-alertas-meta').innerHTML  =
-    `<span class="chip chip-r">${altas.length} altas</span>&nbsp;<span class="chip chip-a">${alertasHoy.filter(a=>a.severidad==='MEDIA').length} medias</span>`;
+    `<span class="chip chip-r">${altas.length} altas</span>&nbsp;<span class="chip chip-a">${alertasHoy.filter(a=>getSev(a)==='MEDIA').length} medias</span>`;
   document.getElementById('k-altas').textContent = altas.length;
  
   if (ultima) {
-    document.getElementById('k-ultima').textContent    = ultima.tipo_alerta || ultima['tipo alerta'] || '—';
-    document.getElementById('k-ultima-meta').innerHTML = `<span class="mono">${ultima.patente}</span> &middot; ${fmtTime(ultima.timestamp)}`;
+    document.getElementById('k-ultima').textContent    = ultima.tipo_alerta || ultima['Tipo Alerta'] || ultima['tipo alerta'] || '—';
+    document.getElementById('k-ultima-meta').innerHTML = `<span class="mono">${ultima.patente||ultima['Patente']||''}</span> &middot; ${fmtTime(ultima.timestamp||ultima['Timestamp']||'')}`;
   }
 }
  
@@ -528,23 +550,23 @@ function renderFlota() {
  
   tb.innerHTML = rows.map(r => {
     // Severidad: primero desde hoja Flota, si no desde última alerta
-    const sev = r.severidad || r._ultAl.severidad || '';
+    const sev = r.severidad || r['Severidad'] || r._ultAl?.severidad || '';
     const sevCls = sev==='ALTA'?'pr':sev==='MEDIA'?'pa2':'pn';
     // Alertas hoy: desde contador en tiempo real
     const cnt = r._cntHoy;
     const cntCls = cnt===0?'pg':cnt<=2?'pa2':'pr';
     // Tipo última alerta: desde hoja Flota (campo tipo_alerta) o desde alertas
-    const tipo = r.tipo_alerta || r._ultAl.tipo_alerta || '—';
+    const tipo = r.tipo_alerta || r['Tipo Alerta'] || r._ultAl?.tipo_alerta || '—';
     // Timestamp última alerta: campo ultima_alerta en hoja Flota
-    const ts   = r.ultima_alerta || r._ultAl.timestamp || '';
+    const ts   = r.ultima_alerta || r['Ultima Alerta'] || r._ultAl?.timestamp || '';
     // Coords: desde hoja Flota o desde última alerta
-    const lat  = r.lat || r._ultAl.lat || '';
-    const lng  = r.lng || r._ultAl.lng || '';
+    const lat  = r.lat || r['Latitud'] || r._ultAl?.lat || '';
+    const lng  = r.lng || r['Longitud'] || r._ultAl?.lng || '';
     // Ubicación
-    const ubi  = r.ubicacion || r._ultAl.ubicacion || '—';
+    const ubi  = r.ubicacion || r['Ubicacion'] || r['Ubicaci\u00f3n'] || r._ultAl?.ubicacion || '—';
     const ubiShort = ubi.length > 30 ? ubi.slice(0,30)+'…' : ubi;
     // Chofer: desde hoja Flota o desde última alerta
-    const chofer = r.chofer || r._ultAl.chofer || '—';
+    const chofer = r.chofer || r['Chofer'] || r._ultAl?.chofer || '—';
     const mapHref = lat && lng ? `https://maps.google.com/maps?q=${lat},${lng}` : '';
  
     return `<tr>
@@ -565,8 +587,8 @@ function renderFlota() {
 function renderAlertasTable(filtro) {
   filtroActual = filtro;
   let data = [...alertasData].reverse(); // más reciente primero
-  if (filtro === 'alta')  data = data.filter(a => a.severidad === 'ALTA');
-  if (filtro === 'media') data = data.filter(a => a.severidad === 'MEDIA');
+  if (filtro === 'alta')  data = data.filter(a => (a.severidad||a['Severidad']||'') === 'ALTA');
+  if (filtro === 'media') data = data.filter(a => (a.severidad||a['Severidad']||'') === 'MEDIA');
  
   const el = document.getElementById('alertas-container');
   if (!data.length) {
@@ -582,21 +604,21 @@ function renderAlertasTable(filtro) {
       <th>Ubicación</th><th>Estado</th><th>Mapa</th>
     </tr></thead>
     <tbody>${data.map((a,i) => {
-      const sevCls = a.severidad==='ALTA'?'pr':a.severidad==='MEDIA'?'pa2':'pg';
-      const estCls = a.estado==='Resuelta'?'pg':'pr';
-      const latl = a.lat||''; const lngl = a.lng||'';
+      const _sev = a.severidad||a['Severidad']||''; const sevCls = _sev==='ALTA'?'pr':_sev==='MEDIA'?'pa2':'pg';
+      const _est = a.estado||a['Estado']||''; const estCls = _est==='Resuelta'?'pg':'pr';
+      const latl = a.lat||a['Latitud']||''; const lngl = a.lng||a['Longitud']||'';
       const mapH = latl&&lngl?`https://maps.google.com/maps?q=${latl},${lngl}`:'';
       const ubiS = (a.ubicacion||'').length>35?(a.ubicacion||'').slice(0,35)+'…':(a.ubicacion||'—');
-      return `<tr style="${a.estado==='Resuelta'?'opacity:.45':''}">
+      return `<tr style="${_est==='Resuelta'?'opacity:.45':''}">
         <td><input type="checkbox" class="chk-row" data-idx="${i}"></td>
-        <td class="mono" style="font-size:9px;color:var(--text3)">${fmtTS(a.timestamp)}</td>
-        <td><span class="pat">${a.patente||'—'}</span></td>
-        <td style="font-size:10px">${a.chofer||'—'}</td>
+        <td class="mono" style="font-size:9px;color:var(--text3)">${fmtTS(a.timestamp||a['Timestamp']||'')}</td>
+        <td><span class="pat">${a.patente||a['Patente']||'—'}</span></td>
+        <td style="font-size:10px">${a.chofer||a['Chofer']||'—'}</td>
         <td><span class="pill ${((a.tipo_alerta||'')).toLowerCase().includes('velocidad')?'pr':((a.tipo_alerta||'')).toLowerCase().includes('giro')||((a.tipo_alerta||'')).toLowerCase().includes('frenada')?'pa2':'pb'}">${a.tipo_alerta||'—'}</span></td>
         <td><span class="pill ${sevCls}">${a.severidad||'—'}</span></td>
-        <td style="font-size:10px;color:var(--text3)">${(a.detalle||'').slice(0,50)}</td>
+        <td style="font-size:10px;color:var(--text3)">${(a.detalle||a['Detalle']||'').slice(0,50)}</td>
         <td><span class="loc-text" title="${a.ubicacion||''}">${ubiS}</span></td>
-        <td><span class="pill ${estCls}">${a.estado||'—'}</span></td>
+        <td><span class="pill ${estCls}">${_est||'—'}</span></td>
         <td>${mapH?`<a class="map-link" href="${mapH}" target="_blank">↗</a>`:'—'}</td>
       </tr>`;
     }).join('')}</tbody>
@@ -643,16 +665,16 @@ function renderFeed() {
   };
  
   el.innerHTML = data.map(a => {
-    const {cls,ico} = tipoIco(a.tipo_alerta);
+    const {cls,ico} = tipoIco(a.tipo_alerta||a['Tipo Alerta']||'');
     const lat=a.lat||''; const lng=a.lng||'';
     const mapH = lat&&lng?`https://maps.google.com/maps?q=${lat},${lng}`:'';
     return `<a class="ai" ${mapH?`href="${mapH}" target="_blank"`:'href="#"'} onclick="${mapH?'':'return false'}">
       <div class="ai-ico ${cls}">${ico}</div>
       <div class="ai-body">
-        <div class="ai-t">${a.tipo_alerta||'Evento'} — <span style="font-family:'JetBrains Mono',monospace;font-size:10px">${a.patente||''}</span></div>
-        <div class="ai-d">${a.chofer||''} ${a.ubicacion?'· '+(a.ubicacion.slice(0,40)):''}…</div>
+        <div class="ai-t">${a.tipo_alerta||a['Tipo Alerta']||'Evento'} — <span style="font-family:'JetBrains Mono',monospace;font-size:10px">${a.patente||a['Patente']||''}</span></div>
+        <div class="ai-d">${a.chofer||a['Chofer']||''} ${(a.ubicacion||a['Ubicaci\u00f3n']||a['Ubicacion'])?'· '+((a.ubicacion||a['Ubicaci\u00f3n']||a['Ubicacion']).slice(0,40)):''}…</div>
         <div class="ai-meta">
-          <span class="pill ${a.severidad==='ALTA'?'pr':a.severidad==='MEDIA'?'pa2':'pg'}" style="font-size:8px">${a.severidad||''}</span>
+          <span class="pill ${(a.severidad||a['Severidad']||'')==='ALTA'?'pr':(a.severidad||a['Severidad']||'')==='MEDIA'?'pa2':'pg'}" style="font-size:8px">${a.severidad||a['Severidad']||''}</span>
           ${mapH?'<span style="font-size:8px;color:var(--blue);font-family:\'JetBrains Mono\',monospace">ver mapa ↗</span>':''}
         </div>
       </div>
@@ -679,7 +701,7 @@ function renderICM() {
 /* ─ MINI STATS ─ */
 function renderMiniStats() {
   const hoy = new Date().toISOString().slice(0,10);
-  const hoyData = alertasData.filter(a => (a.timestamp||'').startsWith(hoy));
+  const hoyData = alertasData.filter(a => (a.timestamp||a['Timestamp']||'').startsWith(hoy));
   const tipoVal = a => (a.tipo_alerta || a['tipo alerta'] || '').toLowerCase();
   const cnt = t => hoyData.filter(a => tipoVal(a).includes(t)).length;
  
