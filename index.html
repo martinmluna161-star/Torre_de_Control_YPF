@@ -83,7 +83,7 @@ body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--tex
 .cfg.open{display:block}
 .cfg-title{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--text2);
   letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;}
-.cfg-grid{display:grid;grid-template-columns:1fr 1fr 120px;gap:8px;align-items:end}
+.cfg-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end}
 .cfg-field{display:flex;flex-direction:column;gap:4px}
 .cfg-label{font-size:9px;color:var(--text3);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.06em}
 .cfg-input{
@@ -208,6 +208,21 @@ body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--tex
  
 /* ── LAST ALERT LOCATION ── */
 .loc-text{font-size:10px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px}
+ 
+/* ── DOCS VENCIMIENTO ── */
+.docs-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.doc-kpi{background:var(--bg3);border-radius:8px;padding:9px 11px;display:flex;align-items:center;gap:10px}
+.doc-kpi-ico{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;font-family:'JetBrains Mono',monospace;flex-shrink:0}
+.doc-kpi-body{flex:1}
+.doc-kpi-val{font-size:18px;font-weight:500;font-family:'JetBrains Mono',monospace;line-height:1}
+.doc-kpi-lbl{font-size:9px;color:var(--text3);margin-top:2px}
+.venc-list{display:flex;flex-direction:column;gap:4px;max-height:280px;overflow-y:auto}
+.venc-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);font-size:10px}
+.venc-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.venc-info{flex:1;min-width:0}
+.venc-title{font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.venc-sub{color:var(--text3);font-size:9px;margin-top:1px}
+.venc-dias{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;flex-shrink:0;min-width:50px;text-align:right}
 </style>
 </head>
 <body>
@@ -241,6 +256,14 @@ body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--tex
     <div class="cfg-field">
       <label class="cfg-label">URL Sheet — Hoja Flota (CSV publicado)</label>
       <input class="cfg-input" id="c-flota" placeholder="https://docs.google.com/spreadsheets/d/ID/pub?gid=XXXXXXX&output=csv" />
+    </div>
+    <div class="cfg-field">
+      <label class="cfg-label">URL Sheet — Hoja Documentacion (CSV)</label>
+      <input class="cfg-input" id="c-docs" placeholder="https://docs.google.com/spreadsheets/d/ID/pub?gid=XXXXXXX&output=csv" />
+    </div>
+    <div class="cfg-field">
+      <label class="cfg-label">URL Sheet — Hoja ICM (CSV)</label>
+      <input class="cfg-input" id="c-icm" placeholder="https://docs.google.com/spreadsheets/d/ID/pub?gid=XXXXXXX&output=csv" />
     </div>
     <div class="cfg-field">
       <label class="cfg-label">Actualizar cada (seg)</label>
@@ -371,10 +394,12 @@ body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--tex
  
 <script>
 /* ═══ CONFIG ═══ */
-let CFG = { alertasUrl:'', flotaUrl:'', interval:60 };
+let CFG = { alertasUrl:'', flotaUrl:'', docsUrl:'', icmUrl:'', interval:60 };
 let timer = null;
 let alertasData = [];
 let flotaData = [];
+let docsData = [];
+let icmSheetData = [];
 let filtroActual = 'todas';
  
 /* ─ flota base (las 7 unidades) ─ */
@@ -405,12 +430,16 @@ function loadCfg() {
   if (s) CFG = {...CFG, ...JSON.parse(s)};
   document.getElementById('c-alertas').value  = CFG.alertasUrl  || '';
   document.getElementById('c-flota').value    = CFG.flotaUrl    || '';
+  document.getElementById('c-docs').value     = CFG.docsUrl     || '';
+  document.getElementById('c-icm').value      = CFG.icmUrl      || '';
   document.getElementById('c-interval').value = CFG.interval    || 60;
 }
  
 function saveCfg() {
   CFG.alertasUrl = document.getElementById('c-alertas').value.trim();
   CFG.flotaUrl   = document.getElementById('c-flota').value.trim();
+  CFG.docsUrl    = document.getElementById('c-docs').value.trim();
+  CFG.icmUrl     = document.getElementById('c-icm').value.trim();
   CFG.interval   = parseInt(document.getElementById('c-interval').value) || 60;
   localStorage.setItem('arce_cfg_v2', JSON.stringify(CFG));
   toggleCfg();
@@ -432,12 +461,16 @@ async function loadData() {
   if (!CFG.alertasUrl) { loadDemo(); return; }
   setLive('CARGANDO');
   try {
-    const [ar, fr] = await Promise.all([
+    const [ar, fr, dr, ir] = await Promise.all([
       fetch(CFG.alertasUrl + '&t=' + Date.now()).then(r => r.text()),
       CFG.flotaUrl ? fetch(CFG.flotaUrl + '&t=' + Date.now()).then(r => r.text()) : Promise.resolve(''),
+      CFG.docsUrl  ? fetch(CFG.docsUrl  + '&t=' + Date.now()).then(r => r.text()) : Promise.resolve(''),
+      CFG.icmUrl   ? fetch(CFG.icmUrl   + '&t=' + Date.now()).then(r => r.text()) : Promise.resolve(''),
     ]);
     alertasData = parseCSV(ar);
     if (fr) flotaData = parseCSV(fr);
+    if (dr) docsData  = parseCSV(dr);
+    if (ir) icmSheetData = parseCSV(ir);
     render();
     setLive('EN VIVO');
     setTS();
@@ -501,6 +534,8 @@ function render() {
   renderFeed();
   renderICM();
   renderMiniStats();
+  renderDocs();
+  if (icmSheetData.length) renderICMFromSheet();
 }
  
 /* ─ KPIs ─ */
@@ -734,6 +769,15 @@ function loadDemo() {
   render();
   setLive('DEMO');
   setTS();
+  // Docs demo
+  docsData = [
+    {unidad:'ARC-07',patente_equipo:'AH920LE',tipo_equipo:'Camión',tipo_documento:'Seguro automotor',descripcion:'Póliza seguro camión',fecha_vencimiento:'2026-04-20',dias_restantes:'10',estado_doc:'VENCE PRONTO'},
+    {unidad:'ARC-04',patente_equipo:'AE468CL',tipo_equipo:'Camión',tipo_documento:'VTV',descripcion:'Verificación técnica vehicular',fecha_vencimiento:'2026-03-15',dias_restantes:'-26',estado_doc:'VENCIDO'},
+    {unidad:'ARC-01',patente_equipo:'AF206YP',tipo_equipo:'Camión',tipo_documento:'Matafuego',descripcion:'Matafuego x2 revisión',fecha_vencimiento:'2026-05-10',dias_restantes:'30',estado_doc:'VENCE PRONTO'},
+    {unidad:'ARC-03',patente_equipo:'AD751NF',tipo_equipo:'Semi',tipo_documento:'VTV semirremolque',descripcion:'VTV semi',fecha_vencimiento:'2026-06-20',dias_restantes:'71',estado_doc:'ATENCIÓN'},
+    {unidad:'ARC-02',patente_equipo:'AF087FB',tipo_equipo:'Camión',tipo_documento:'Licencia conducir',descripcion:'Licencia cat. E',fecha_vencimiento:'2027-03-01',dias_restantes:'325',estado_doc:'OK'},
+  ];
+  renderDocs();
 }
  
 /* ═══ UTILS ═══ */
@@ -768,6 +812,80 @@ function setTS() {
 }
  
 function toggleFleetView() {}
+ 
+/* ═══ DOCS VENCIMIENTOS ═══ */
+function renderDocs() {
+  if (!docsData.length) return;
+  const hoy = new Date();
+  const vencidos=[], prox30=[], aten60=[], ok=[];
+ 
+  docsData.forEach(d => {
+    const fv = d.fecha_vencimiento || d['fecha_vencimiento'] || '';
+    if (!fv || fv === '—' || fv === '') return;
+    const fDate = new Date(fv);
+    if (isNaN(fDate)) return;
+    const diff = Math.floor((fDate - hoy) / 86400000);
+    const unidad  = d.unidad || d['unidad'] || '';
+    const patente = d.patente_equipo || d['patente_equipo'] || d.patente || '';
+    const tipodoc = d.tipo_documento || d['tipo_documento'] || '';
+    const desc    = d.descripcion || d['descripcion'] || '';
+    const obj = {unidad, patente, tipodoc, desc, diff, fv};
+    if (diff < 0)      vencidos.push(obj);
+    else if (diff<=30) prox30.push(obj);
+    else if (diff<=60) aten60.push(obj);
+    else               ok.push(obj);
+  });
+ 
+  document.getElementById('dk-venc').textContent = vencidos.length;
+  document.getElementById('dk-prox').textContent = prox30.length;
+  document.getElementById('dk-aten').textContent = aten60.length;
+  document.getElementById('dk-ok').textContent   = ok.length;
+ 
+  const items = [
+    ...vencidos.map(d => ({...d, color:'var(--red)',   dotBg:'#f05050', label:`VENCIDO hace ${Math.abs(d.diff)} días`})),
+    ...prox30.map(d   => ({...d, color:'var(--amber)', dotBg:'#f0a841', label:`Vence en ${d.diff} días`})),
+    ...aten60.map(d   => ({...d, color:'var(--amber)', dotBg:'#f0c040', label:`${d.diff} días restantes`})),
+    ...ok.slice(0,5).map(d => ({...d, color:'var(--green)', dotBg:'#2dd98f', label:`OK — ${d.diff} días`})),
+  ].slice(0,20);
+ 
+  const el = document.getElementById('venc-list');
+  if (!items.length) {
+    el.innerHTML = '<div class="empty" style="padding:8px">Sin fechas cargadas aún — completar col F del Sheet</div>';
+    return;
+  }
+  el.innerHTML = items.map(i => `
+    <div class="venc-item">
+      <div class="venc-dot" style="background:${i.dotBg}"></div>
+      <div class="venc-info">
+        <div class="venc-title">${i.tipodoc} — <span style="font-family:'JetBrains Mono',monospace">${i.patente}</span></div>
+        <div class="venc-sub">${i.desc}</div>
+      </div>
+      <div class="venc-dias" style="color:${i.color}">${i.label}</div>
+    </div>`).join('');
+}
+ 
+/* ═══ ICM DESDE SHEET ═══ */
+function renderICMFromSheet() {
+  if (!icmSheetData.length) return;
+  // Tomar el período más reciente de cada unidad
+  const byUnit = {};
+  icmSheetData.forEach(r => {
+    const u = r.unidad || r['unidad'] || '';
+    const p = r.patente || r['patente'] || '';
+    const v = parseFloat(r.icm || r['icm'] || 0);
+    if (!u || isNaN(v)) return;
+    if (!byUnit[u] || v !== undefined) byUnit[u] = {unidad:u, patente:p, v};
+  });
+  const data = Object.values(byUnit).sort((a,b) => b.v-a.v);
+  if (!data.length) return;
+  // Actualizar ICM_DATA con valores reales del Sheet
+  data.forEach(d => {
+    const idx = ICM_DATA.findIndex(r => r.unidad===d.unidad);
+    if (idx>=0) ICM_DATA[idx].v = Math.round(d.v);
+    else ICM_DATA.push({unidad:d.unidad, patente:d.patente, v:Math.round(d.v)});
+  });
+  renderICM();
+}
  
 /* ═══ INIT ═══ */
 window.addEventListener('DOMContentLoaded', () => {
